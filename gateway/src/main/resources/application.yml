@@ -1,0 +1,35 @@
+spring:
+  cloud:
+    gateway:
+      routes:
+        # Auth-MS (인증 서버)
+        - id: auth-ms
+          uri: http://auth-ms:8080
+          predicates:
+            - Path=/api/v1/auth/**, /oauth2/**, /login/oauth2/code/**
+
+          filters:
+            - PreserveHostHeader
+        - id: user-ms
+          uri: http://user-ms:8080
+          predicates:
+            - Path=/api/v1/users/**
+        - id: group-ms
+          uri: http://group-ms:8080
+          predicates:
+            - Path=/api/v1/groups/**
+        - id: backend-ms
+          uri: http://backend-ms:8080
+          predicates:
+            - Path=/api/v1/**
+
+jwt:
+  ecc-public-key: ${JWT_ECC_PUBLIC_KEY}
+
+gateway:
+  filter:
+    auth:
+      permit-all-paths:
+        - /api/v1/auth/**
+        - /oauth2/**
+        - /login/oauth2/code/**

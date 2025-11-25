@@ -1,0 +1,65 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+/.idea/
+*.iml
+/.vscode/
+*.swp
+*.swo
+
+# Envs
+**/.venv/
+**/venv/
+.env
+.env.local
+.env.*.local
+**/.env*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python / build
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ML artifacts
+**/out_roberta_60cls/
+**/checkpoint-*/
+**/runs/
+**/wandb/
+*.safetensors
+pytorch_model.bin
+*.pt
+tokenizer.json
+
+# Misc
+/*.pem
+.gradle/
+bin/
+HELP.md
+
+# Jenkins
+jenkins/.env.local
+ai/jenkins/.env
+
+
+build/
+
+ai/video-ai/worker/clips/
+minio-data/
+# Local-only Debezium connector config
+register-connector.json

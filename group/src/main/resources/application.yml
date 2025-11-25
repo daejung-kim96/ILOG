@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: group-ms
+  datasource:
+    write:
+      jdbc-url: jdbc:postgresql://${POSTGRES_CONTAINER_NAME}:${POSTGRES_INTERNAL_PORT:5432}/${POSTGRES_DB}?currentSchema=group_write
+      username: ${POSTGRES_USER}
+      password: ${POSTGRES_PASSWORD}
+      driver-class-name: org.postgresql.Driver
+      type: com.zaxxer.hikari.HikariDataSource
+
+    read:
+      jdbc-url: jdbc:postgresql://${POSTGRES_CONTAINER_NAME}:${POSTGRES_INTERNAL_PORT:5432}/${POSTGRES_DB}?currentSchema=group_read
+      username: ${POSTGRES_USER}
+      password: ${POSTGRES_PASSWORD}
+      driver-class-name: org.postgresql.Driver
+      type: com.zaxxer.hikari.HikariDataSource
+  kafka:
+    # 3개 노드 중 하나만 적어도 클러스터 전체를 찾을 수 있지만,
+    # 고가용성을 위해 3개 노드를 모두 적어주는 것이 좋습니다.
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+
+    consumer:
+      # (필수) @KafkaListener의 groupId 기본값입니다.
+      group-id: group-ms-consumer
+      # Debezium이 key를 String, value를 JSON String으로 보냅니다.
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # (권장) 컨슈머 그룹이 처음 토픽에 붙을 때, 'earliest'는 모든 과거 메시지를,
+      # 'latest'는 지금부터 오는 새 메시지만 받습니다.
+      # 이벤트 처리는 'earliest'가 안전합니다.
+      auto-offset-reset: earliest
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+      # (권장) 멱등성 보장 (메시지 중복 전송 방지)
+      properties:
+        enable.idempotence: true
+
+jpa-properties:
+  write:
+    properties:
+      hibernate.hbm2ddl.auto: validate
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+      hibernate.show_sql: false
+      hibernate.format_sql: false
+  read:
+    properties:
+      hibernate.hbm2ddl.auto: none
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+      hibernate.show_sql: false

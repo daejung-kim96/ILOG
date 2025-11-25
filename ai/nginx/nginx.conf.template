@@ -1,0 +1,158 @@
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml text/javascript
+               application/json application/javascript application/xml+rss;
+
+    # ===========================
+    # Upstreams
+    # ===========================
+    upstream emotion_ai {
+        server emotion-ai:8001;
+    }
+
+    upstream video_ai_worker {
+        server ai-worker:9108;
+    }
+
+    # MediaMTX / WebRTC / HLS gateway
+    upstream webrtc_gateway {
+        server hls-gateway:8889;
+    }
+
+    upstream hls_gateway {
+        server hls-gateway:8888;
+    }
+
+    # ===========================
+    # HTTP Server (redirect to HTTPS, health only)
+    # ===========================
+    server {
+        listen 80;
+        server_name ${NGINX_SERVER_NAME};
+
+        # Jenkins / external health check
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Everything else -> HTTPS
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    # ===========================
+    # HTTPS Server (SSL)
+    # ===========================
+    server {
+        listen 443 ssl http2;
+        server_name ${NGINX_SERVER_NAME};
+
+        # Let's Encrypt SSL certificates (paths from env)
+        ssl_certificate ${SSL_CERT_PATH};
+        ssl_certificate_key ${SSL_CERT_KEY_PATH};
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+
+        # Health check (HTTPS)
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # ===========================
+        # Emotion AI API
+        # ===========================
+        location /api/emotion/ {
+            proxy_pass http://emotion_ai/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            add_header Access-Control-Allow-Origin * always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+
+            if ($request_method = 'OPTIONS') {
+                return 204;
+            }
+        }
+
+        # ===========================
+        # Video AI Worker API
+        # ===========================
+        location /api/video-ai/ {
+            proxy_pass http://video_ai_worker/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            add_header Access-Control-Allow-Origin * always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+
+            if ($request_method = 'OPTIONS') {
+                return 204;
+            }
+        }
+
+        # ===========================
+        # WebRTC / HLS (MediaMTX)
+        # ===========================
+        # WHEP: /whep/{stream}
+        location /whep/ {
+            proxy_pass http://webrtc_gateway/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # HLS: /hls/{stream}/index.m3u8
+        location /hls/ {
+            proxy_pass http://hls_gateway/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+

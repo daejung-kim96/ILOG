@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jenkins-ai:latest
+    container_name: jenkins-ai
+    restart: unless-stopped
+    privileged: true
+    user: root
+    ports:
+      - "${JENKINS_PORT:-8090}:8080"
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
+    environment:
+      - JENKINS_OPTS=--prefix=/jenkins
+    volumes:
+      # Jenkins 데이터
+      - jenkins-data:/var/jenkins_home
+
+      # Docker 소켓 마운트 (Jenkins에서 Docker 명령 실행)
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # AI 프로젝트 소스 마운트
+      - ../:/workspace/ai:rw
+    networks:
+      - jenkins-network
+
+volumes:
+  jenkins-data:
+    driver: local
+
+networks:
+  jenkins-network:
+    driver: bridge

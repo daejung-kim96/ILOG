@@ -1,0 +1,39 @@
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jenkins
+    restart: unless-stopped
+    privileged: true
+    user: root
+    ports:
+      - "${JENKINS_PORT:-8090}:8080"
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
+    volumes:
+      # Jenkins 데이터 저장
+      - jenkins_home:/var/jenkins_home
+
+      # Docker 소켓 마운트 (Docker-in-Docker)
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # 프로젝트 루트 디렉토리 마운트
+      - ../:/workspace
+
+      # Docker Compose 바이너리 공유
+      - /usr/local/bin/docker-compose:/usr/local/bin/docker-compose:ro
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - JENKINS_OPTS=--prefix=/jenkins
+    networks:
+      # 메인 프로젝트 네트워크와 연결
+      - project_network
+
+volumes:
+  jenkins_home:
+    driver: local
+
+networks:
+  project_network:
+    name: s13p31a108_default
+    external: true

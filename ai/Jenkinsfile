@@ -1,0 +1,178 @@
+pipeline {
+    agent any
+
+    options {
+        gitLabConnection('gitlab-connection')
+    }
+
+    environment {
+        EC2_HOST = "13.125.227.33"
+        EC2_AI_PATH = "/home/ubuntu/ai"
+        PROJECT_DIR = "${env.WORKSPACE}/ai"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            when {
+                anyOf {
+                    branch 'release'
+                    expression { env.GIT_BRANCH ==~ /.*release.*/ }
+                }
+            }
+            steps {
+                echo '=== Checkout release branch ==='
+                checkout scm
+            }
+        }
+
+        stage('Check Emotion AI Changes') {
+            when {
+                anyOf {
+                    branch 'release'
+                    expression { env.GIT_BRANCH ==~ /.*release.*/ }
+                }
+            }
+            steps {
+                script {
+                    echo '=== Checking for Emotion AI changes ==='
+
+                    def changes = sh(
+                        script: "git diff --name-only origin/release@{1} origin/release | grep '^ai/' || true",
+                        returnStdout: true
+                    ).trim()
+
+                    if (!changes) {
+                        echo "ℹ️ No AI folder changes, skipping deployment"
+                        currentBuild.result = 'SUCCESS'
+                        return
+                    }
+
+                    echo "✅ AI folder changes detected:"
+                    echo changes
+                }
+            }
+        }
+
+        stage('Upload AI Files to EC2') {
+            when {
+                anyOf {
+                    branch 'release'
+                    expression { env.GIT_BRANCH ==~ /.*release.*/ }
+                }
+            }
+            steps {
+                echo '📤 Uploading AI files to EC2'
+
+                dir('ai') {
+                    sshagent(['ec2-ssh-key']) {
+                        sh """
+                            ssh ubuntu@${EC2_HOST} "
+                                mkdir -p ${EC2_AI_PATH}/{emotion-ai,video-ai,nginx} &&
+                                sudo chown -R ubuntu:ubuntu ${EC2_AI_PATH}
+                            "
+
+                            scp docker-compose.yml ubuntu@${EC2_HOST}:${EC2_AI_PATH}/
+
+                            scp -r emotion-ai ubuntu@${EC2_HOST}:${EC2_AI_PATH}/
+                            scp -r video-ai ubuntu@${EC2_HOST}:${EC2_AI_PATH}/
+                            scp -r nginx ubuntu@${EC2_HOST}:${EC2_AI_PATH}/
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Check Environment on EC2') {
+            when {
+                anyOf {
+                    branch 'release'
+                    expression { env.GIT_BRANCH ==~ /.*release.*/ }
+                }
+            }
+            steps {
+                sshagent(['ec2-ssh-key']) {
+                    sh """
+                        ssh ubuntu@${EC2_HOST} "
+                            cd ${EC2_AI_PATH}
+
+                            if [ ! -f .env ]; then
+                                echo '❌ .env file missing!'
+                                exit 1
+                            fi
+
+                            echo '✅ .env file exists'
+                        "
+                    """
+                }
+            }
+        }
+
+        stage('Deploy Emotion AI') {
+            when {
+                anyOf {
+                    branch 'release'
+                    expression { env.GIT_BRANCH ==~ /.*release.*/ }
+                }
+            }
+            steps {
+                sshagent(['ec2-ssh-key']) {
+                    sh """
+                        ssh ubuntu@${EC2_HOST} "
+                            cd ${EC2_AI_PATH}
+                            docker compose down || true
+                            docker compose up -d --build
+                        "
+                    """
+                }
+            }
+        }
+
+        stage('Health Check') {
+            when {
+                anyOf {
+                    branch 'release'
+                    expression { env.GIT_BRANCH ==~ /.*release.*/ }
+                }
+            }
+            steps {
+                sshagent(['ec2-ssh-key']) {
+                    sh """
+                        ssh ubuntu@${EC2_HOST} "
+                            echo 'Waiting for services to be ready...'
+                            sleep 10
+
+                            # Retry logic for health checks
+                            for i in 1 2 3 4 5; do
+                                echo 'Attempt '\$i'/5...'
+                                if curl -f http://localhost/health && curl -f http://localhost:8001/healthz; then
+                                    echo '✅ Health check passed!'
+                                    exit 0
+                                fi
+                                echo 'Health check failed, retrying in 10s...'
+                                sleep 10
+                            done
+
+                            echo '❌ Health check failed after 5 attempts'
+                            exit 1
+                        "
+                    """
+                }
+            }
+        }
+    }
+ 
+    post {
+        success {
+            echo '✅ Deployment Successful!'
+            updateGitlabCommitStatus name: 'deploy-ai', state: 'success'
+        }
+        failure {
+            echo '❌ Deployment Failed!'
+            updateGitlabCommitStatus name: 'deploy-ai', state: 'failed'
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

@@ -1,0 +1,82 @@
+services:
+  auth-redis:
+    ports:
+      - "6379:6379"
+  # ===========================
+  # KAFKA (개발용 포트 노출)
+  # ===========================
+  kafka-1:
+    ports:
+      - "${KAFKA_EXTERNAL_PORT_1}:9092"
+  kafka-2:
+    ports:
+      - "${KAFKA_EXTERNAL_PORT_2}:9092"
+  kafka-3:
+    ports:
+      - "${KAFKA_EXTERNAL_PORT_3}:9092"
+
+  # ===========================
+  # KAFKA CONNECT (개발용 포트 노출)
+  # ===========================
+  connect:
+    ports:
+      - "${CONNECT_EXTERNAL_PORT}:8083"
+
+  # ===========================
+  # POSTGRES DATABASE (개발용 포트 노출)
+  # ===========================
+  database:
+    ports:
+      - "${POSTGRES_EXTERNAL_PORT}:5432"
+
+  # ===========================
+  # FRONTEND (개발 환경)
+  # ===========================
+  # 개발 시에는 로컬에서 npm run dev로 직접 실행
+  # frontend:
+  #   image: node:20
+  #   container_name: frontend-dev
+  #   working_dir: /app
+  #   command: sh -c "npm install && npm run dev -- --host"
+  #   volumes:
+  #     - ./frontend:/app
+  #   ports:
+  #     - "5173:5173"
+  #   environment:
+  #     VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+
+  nginx:
+    environment:
+      NGINX_ENV: dev
+      SERVER_NAME: localhost
+      FRONTEND_UPSTREAM: http://host.docker.internal:5173
+      GATEWAY_UPSTREAM: http://gateway:8080
+      ERROR_LOG_LEVEL: debug
+    ports:
+      - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ===========================
+  # HELPER (개발용 커넥터 자동 등록)
+  # ===========================
+  connect-init:
+    image: curlimages/curl:latest
+    container_name: connect-init
+    depends_on:
+      - connect
+    networks:
+      - default
+    volumes:
+      - ./register-connector.json:/config/register-connector.json:ro
+    command: >
+      sh -c "
+        echo 'Waiting for Kafka Connect (connect:8083) to be ready...'
+        until curl -s -f http://connect:8083/connectors; do
+          echo 'Connect not ready yet, sleeping 5s...';
+          sleep 5;
+        done;
+        echo 'Kafka Connect is UP. Registering connector...';
+        curl -X POST -H 'Content-Type: application/json' --data @/config/register-connector.json http://connect:8083/connectors
+        echo 'Connector registration requested. Exiting.';
+      "

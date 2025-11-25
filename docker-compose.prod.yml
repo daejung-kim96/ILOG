@@ -1,0 +1,45 @@
+services:
+  # ========================================
+  # NGINX (배포 환경 - HTTPS + 정적 파일)
+  # ========================================
+  nginx:
+    environment:
+      NGINX_ENV: prod
+      SERVER_NAME: ${NGINX_SERVER_NAME}
+      GATEWAY_UPSTREAM: http://gateway:8080
+      CLIENT_MAX_BODY_SIZE: ${NGINX_CLIENT_MAX_BODY_SIZE:-20m}
+      ERROR_LOG_LEVEL: ${NGINX_ERROR_LOG_LEVEL:-error}
+      SSL_CERT_PATH: ${NGINX_SSL_CERT_PATH:-/etc/letsencrypt/live/ilog.kro.kr/fullchain.pem}
+      SSL_CERT_KEY_PATH: ${NGINX_SSL_CERT_KEY_PATH:-/etc/letsencrypt/live/ilog.kro.kr/privkey.pem}
+    volumes:
+      - ${LETSENCRYPT_PATH:-/etc/letsencrypt}:/etc/letsencrypt:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    ports:
+      - "80:80"
+      - "443:443"
+
+  # ========================================
+  # Debezium Connector 초기화 (배포 환경)
+  # ========================================
+  connect-init:
+    image: curlimages/curl:latest
+    container_name: connect-init
+    depends_on:
+      - connect
+    volumes:
+      - ./register-connector.json:/config/register-connector.json:ro
+    command: >
+      sh -c "
+        echo 'Waiting for Kafka Connect at connect:8083...';
+        until curl -sf http://connect:8083/connectors; do
+          echo 'Connect not ready, retrying in 5s';
+          sleep 5;
+        done;
+        echo 'Kafka Connect is ready. Ensuring outbox connector exists...';
+        if curl -sf http://connect:8083/connectors/outbox-connector >/dev/null 2>&1; then
+          curl -sf -X PUT http://connect:8083/connectors/outbox-connector/config -H 'Content-Type: application/json' --data @/config/register-connector.json;
+        else
+          curl -sf -X POST http://connect:8083/connectors -H 'Content-Type: application/json' --data @/config/register-connector.json;
+        fi;
+        echo 'Connector registration complete.';
+      "

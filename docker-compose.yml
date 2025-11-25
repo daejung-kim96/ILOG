@@ -1,0 +1,291 @@
+name: main
+
+# version: "3.9"
+
+services:
+  # ========================================
+  # Redis for Auth Service
+  # ========================================
+  auth-redis:
+    image: redis:7-alpine
+    container_name: auth-redis
+    command: redis-server --requirepass "${REDIS_PASSWORD}"
+    restart: unless-stopped
+
+  # ========================================
+  # Kafka Cluster (KRaft mode)
+  # ========================================
+  kafka-1:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    volumes:
+      - kafka_data_1:/var/lib/kafka/data
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-2
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092,CONTROLLER://kafka-2:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    volumes:
+      - kafka_data_2:/var/lib/kafka/data
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-3
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092,CONTROLLER://kafka-3:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    volumes:
+      - kafka_data_3:/var/lib/kafka/data
+
+  # ========================================
+  # Kafka Topic Init
+  # ========================================
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-init
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      echo 'Waiting for Kafka to start...';
+      sleep 30;
+
+      kafka-topics --bootstrap-server kafka-1:9092 --create --topic User --partitions 3 --replication-factor 3 --if-not-exists
+      kafka-topics --bootstrap-server kafka-1:9092 --create --topic Order --partitions 3 --replication-factor 3 --if-not-exists
+
+  # ========================================
+  # Debezium Kafka Connect
+  # ========================================
+  connect:
+    image: debezium/connect:2.5
+    container_name: kafka-connect
+    depends_on:
+      - kafka-init
+      - database
+    environment:
+      BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 3
+      OFFSET_STORAGE_REPLICATION_FACTOR: 3
+      STATUS_STORAGE_REPLICATION_FACTOR: 3
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_CONFIG_PROVIDERS: "env"
+      CONNECT_CONFIG_PROVIDERS_ENV_ENABLED: "true"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+  # ========================================
+  # PostgreSQL
+  # ========================================
+  database:
+    build: ./database/postgre
+    container_name: postgre_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: postgres -c wal_level=logical
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # ========================================
+  # Auth Service
+  # ========================================
+  auth:
+    build: ./auth
+    container_name: auth-ms
+    depends_on:
+      - database
+      - kafka-1
+      - auth-redis
+    environment:
+      SPRING_DATASOURCE_WRITE_JDBC_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}?currentSchema=auth_write
+      SPRING_DATASOURCE_READ_JDBC_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}?currentSchema=auth_read
+      SPRING_DATASOURCE_WRITE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_READ_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_WRITE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_READ_PASSWORD: ${POSTGRES_PASSWORD}
+
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      JWT_ECC_PRIVATE_KEY: ${JWT_ECC_PRIVATE_KEY}
+      JWT_ECC_PUBLIC_KEY: ${JWT_ECC_PUBLIC_KEY}
+      DOMAIN_URL: ${DOMAIN_URL}
+
+      REDIS_HOST: auth-redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  # ========================================
+  # Backend
+  # ========================================
+  backend:
+    build: ./backend
+    container_name: backend-ms
+    depends_on:
+      - database
+      - kafka-1
+      - createbuckets
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
+
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      AI_EMOTION_BASE_URL: ${AI_EMOTION_BASE_URL}
+
+      LLM_API_BASE: ${LLM_API_BASE}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+  # ========================================
+  # Group Service
+  # ========================================
+  group:
+    build: ./group
+    container_name: group-ms
+    depends_on:
+      - database
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    environment:
+      SPRING_DATASOURCE_WRITE_JDBC_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}?currentSchema=group_write
+      SPRING_DATASOURCE_WRITE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_WRITE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_READ_JDBC_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}?currentSchema=group_read
+      SPRING_DATASOURCE_READ_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_READ_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+
+  # ========================================
+  # User Service
+  # ========================================
+  user:
+    build: ./user
+    container_name: user-ms
+    depends_on:
+      - database
+      - kafka-1
+    environment:
+      SPRING_DATASOURCE_WRITE_JDBC_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}?currentSchema=user_write
+      SPRING_DATASOURCE_READ_JDBC_URL: jdbc:postgresql://database:5432/${POSTGRES_DB}?currentSchema=user_read
+      SPRING_DATASOURCE_WRITE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_READ_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_WRITE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_READ_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+
+  # ========================================
+  # Gateway
+  # ========================================
+  gateway:
+    build: ./gateway
+    container_name: gateway-ms
+    depends_on:
+      - auth
+      - backend
+      - user
+      - group
+    environment:
+      JWT_ECC_PUBLIC_KEY: ${JWT_ECC_PUBLIC_KEY}
+
+  # ========================================
+  # NGINX (환경별 설정은 override/prod.yml에서)
+  # ========================================
+  nginx:
+    build:
+      context: ./infra/nginx
+    container_name: nginx-gateway
+    depends_on:
+      - gateway
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - 9000:9000
+      - "127.0.0.1:9001:9001" # 콘솔용 (SSH 터널링을 위해 필수)
+    volumes:
+      - ./minio-data:/data
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ▼▼▼ 여기가 핵심! (자동 설정 도우미) ▼▼▼
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy # minio가 건강해지면 실행됨
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        ATTEMPTS=0
+        MAX_ATTEMPTS=6
+        until mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do
+            if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+                echo 'Failed to connect to MinIO after several attempts.'
+                exit 1
+            fi
+            ATTEMPTS=$(($ATTEMPTS+1))
+            echo 'Waiting for MinIO to be ready...'
+            sleep 5
+        done
+        mc mb --ignore-existing local/biskit-media
+        mc anonymous set download local/biskit-media
+volumes:
+  postgres_data:
+  kafka_data_1:
+  kafka_data_2:
+  kafka_data_3:

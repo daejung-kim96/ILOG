@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: backend
+
+  datasource:
+    url: jdbc:postgresql://database:5432/ilog
+    username: ${DB_USER_NAME:}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-init-sql: "SET search_path TO public,user_write,user_read"
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  servlet:
+    multipart:
+      max-file-size: 5GB # 파일 하나당 최대 크기 (동영상 고려)
+      max-request-size: 5GB # 요청 하나당 최대 크기
+
+logging:
+  level:
+    org.springframework: INFO
+    org.hibernate: INFO
+    ilog.back.service.impl: DEBUG
+
+ai:
+  emotion:
+    base-url: ${AI_EMOTION_BASE_URL:http://localhost:8000}
+    timeout-ms: 5000
+
+worker:
+  base-url: ${WORKER_BASE_URL:http://localhost:9108}
+  timeout-ms: ${WORKER_TIMEOUT_MS:5000}
+
+mtx:
+  public-host: ${MTX_PUBLIC_HOST:http://localhost:8086}
+  hls-template: ${MTX_HLS_TEMPLATE:/app/{stream}/index.m3u8}
+  whep-template: ${MTX_WHEP_TEMPLATE:/{stream}/whep}
+  test-template: ${MTX_TEST_TEMPLATE:/test-webrtc.html?s={stream}}
+  default-stream-name: ${MTX_STREAM_NAME:c200}
+
+batch:
+  analyze:
+    batch-size: 200
+    enqueue-cron: "0 0 3 * * *"
+    run-cron: "0 5 3 * * *"
+  report:
+    weekly-cron: "0 0 4 * * MON"
+    monthly-cron: "0 0 5 1 * *"
+
+llm:
+  base: ${LLM_API_BASE:https://gms.ssafy.io/gmsapi/api.openai.com/v1} # ← /v1까지 포함
+  key: ${LLM_API_KEY:}
+  model: ${LLM_MODEL:gpt-4o}
+  timeout-ms: ${LLM_TIMEOUT_MS:10000}
+
+# 커스텀 설정 (우리가 사용할 변수들)
+minio:
+  endpoint: http://minio:9000
+  public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ROOT_USER:minioadmin}
+  secret-key: ${MINIO_ROOT_PASSWORD:minioadmin}
+  bucket: biskit-media
+  region: us-east-1

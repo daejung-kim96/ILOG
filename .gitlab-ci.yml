@@ -1,0 +1,115 @@
+# GitLab CI/CD Pipeline Configuration
+# master / develop 브랜치 또는 MR 대상이 master/develop일 때만 빌드 실행
+
+stages:
+  - build
+
+# ===========================
+# AUTH SERVICE
+# ===========================
+build:auth:
+  stage: build
+  tags:
+    - docker
+  image: gradle:8.5-jdk21
+  script:
+    - cd auth
+    - chmod +x ./gradlew
+    - ./gradlew clean build -x test --refresh-dependencies --no-build-cache --rerun-tasks
+  artifacts:
+    paths:
+      - auth/build/libs/*.jar
+    expire_in: 1 hour
+  rules:
+    # 1️⃣ MR이 master 또는 develop으로 향할 때
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master")'
+    # 2️⃣ master나 develop 브랜치에 직접 push할 때
+    - if: '$CI_COMMIT_BRANCH =~ /^(master|develop)$/'
+    - when: never
+
+# ===========================
+# BACKEND SERVICE
+# ===========================
+build:backend:
+  stage: build
+  tags:
+    - docker
+  image: gradle:8.5-jdk21
+  script:
+    - cd backend
+    - chmod +x ./gradlew
+    - ./gradlew clean build -x test --refresh-dependencies --no-build-cache --rerun-tasks
+  artifacts:
+    paths:
+      - backend/build/libs/*.jar
+    expire_in: 1 hour
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master")'
+    - if: '$CI_COMMIT_BRANCH =~ /^(master|develop)$/'
+    - when: never
+
+# ===========================
+# GATEWAY SERVICE
+# ===========================
+build:gateway:
+  stage: build
+  tags:
+    - docker
+  image: gradle:8.5-jdk21
+  script:
+    - cd gateway
+    - chmod +x ./gradlew
+    - ./gradlew clean build -x test --refresh-dependencies --no-build-cache --rerun-tasks
+  artifacts:
+    paths:
+      - gateway/build/libs/*.jar
+    expire_in: 1 hour
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master")'
+    - if: '$CI_COMMIT_BRANCH =~ /^(master|develop)$/'
+    - when: never
+
+# ===========================
+# USER SERVICE
+# ===========================
+build:user:
+  stage: build
+  tags:
+    - docker
+  image: gradle:8.5-jdk21
+  script:
+    - cd user
+    - chmod +x ./gradlew
+    - ./gradlew clean build -x test --refresh-dependencies --no-build-cache --rerun-tasks
+  artifacts:
+    paths:
+      - user/build/libs/*.jar
+    expire_in: 1 hour
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master")'
+    - if: '$CI_COMMIT_BRANCH =~ /^(master|develop)$/'
+    - when: never
+
+# ===========================
+# FRONTEND (React + Vite)
+# ===========================
+build:frontend:
+  stage: build
+  tags:
+    - docker
+  image: node:20-bookworm
+  variables:
+    ROLLUP_SKIP_NATIVE: "1"
+  script:
+    - cd frontend
+    - rm -rf node_modules package-lock.json
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 hour
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master")'
+    - if: '$CI_COMMIT_BRANCH =~ /^(master|develop)$/'
+    - when: never

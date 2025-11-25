@@ -1,0 +1,94 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MediaMTX WHEP Test</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:16px}
+  #log{white-space:pre-wrap;background:#111;color:#ddd;padding:8px;border-radius:6px;max-height:240px;overflow:auto}
+  video{width:100%;max-width:960px;background:#000;border-radius:6px}
+  button{padding:8px 12px;margin-right:8px}
+  input{padding:6px 8px;width:360px}
+</style>
+<h2>WebRTC (WHEP) Player</h2>
+<p>
+  Stream: <input id="stream" value="c200"> 
+  WHEP: <input id="url" value="/"> 
+  <button id="play">Play</button>
+  <button id="stop" disabled>Stop</button>
+  <span id="state"></span>
+  <br>
+  <small>Tip: ?s=c200 쿼리로 스트림 지정 가능</small>
+  <br>
+  <small>Non-trickle ICE, recvonly(영상/음성)</small>
+<p>
+<video id="v" playsinline controls autoplay muted></video>
+<h3>Log</h3>
+<div id="log"></div>
+<script>
+const qs = new URLSearchParams(location.search);
+const $ = sel => document.querySelector(sel);
+const log = (...a) => { const s=a.map(x=> (x instanceof Error) ? (x.message||String(x)) : (typeof x==='string'?x:JSON.stringify(x))).join(' '); $('#log').textContent += s + "\n"; $('#log').scrollTop = 1e9 };
+
+const streamInput = $('#stream');
+const urlInput = $('#url');
+const playBtn = $('#play');
+const stopBtn = $('#stop');
+const video = $('#v');
+const state = $('#state');
+
+if (qs.get('s')) streamInput.value = qs.get('s');
+
+let pc;
+
+async function start() {
+  let stream = streamInput.value.trim();
+  // single-camera demo: cam-1 별칭도 c200으로 강제 매핑
+  if (!stream || stream === 'cam-1') {
+    stream = 'c200';
+    streamInput.value = stream;
+  }
+  let base = urlInput.value.trim();
+  const ep1 = (base.endsWith('/')?base:base+'/') + encodeURIComponent(stream) + '/whep';
+  const ep2 = '/whep/' + encodeURIComponent(stream);
+  log('endpoint try1 =', ep1);
+
+  state.textContent = ' starting...';
+  pc = new RTCPeerConnection({ iceServers: [] });
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+  pc.ontrack = (e) => { log('ontrack kind=', e.track.kind); video.srcObject = e.streams[0]; };
+  pc.oniceconnectionstatechange = () => { log('ice:', pc.iceConnectionState); state.textContent = ' ' + pc.iceConnectionState; };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  log('offer created, gathering ICE...');
+
+  await new Promise((res) => {
+    if (pc.iceGatheringState === 'complete') return res();
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete') res();
+    };
+  });
+  log('ICE gathering complete');
+
+  const sdp = pc.localDescription.sdp;
+  let resp = await fetch(ep1, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: sdp });
+  if (!resp.ok && resp.status === 404) {
+    log('try2 =', ep2);
+    resp = await fetch(ep2, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: sdp });
+  }
+  if (!resp.ok) throw new Error('WHEP POST failed: ' + resp.status + ' ' + resp.statusText);
+  const answer = await resp.text();
+  await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+  log('answer set');
+
+  playBtn.disabled = true; stopBtn.disabled = false;
+}
+
+function stop() {
+  if (pc) { pc.getSenders().forEach(s=>s.track&&s.track.stop()); pc.close(); pc=null; }
+  playBtn.disabled = false; stopBtn.disabled = true; state.textContent=' stopped';
+}
+
+playBtn.onclick = () => start().catch(e => { log('ERROR', e); state.textContent=' error'; playBtn.disabled=false; stopBtn.disabled=true; });
+stopBtn.onclick = () => stop();
+</script>

@@ -1,0 +1,37 @@
+# Global / server settings (modern keys only)
+
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# HLS server (low-latency oriented)
+hls: yes
+hlsAddress: :__HLS_PORT__
+hlsVariant: fmp4
+hlsSegmentDuration: 2s
+hlsSegmentCount: 6
+hlsPartDuration: 0.5s
+hlsAllowOrigin: "__PUBLIC_HOSTNAME__"
+
+# WebRTC server
+webrtc: yes
+webrtcAddress: :__WEBRTC_PORT__
+webrtcEncryption: no
+webrtcAdditionalHosts:
+  - __PUBLIC_HOSTNAME__
+webrtcICEServers2: []
+
+# Defaults for all paths
+pathDefaults:
+  # 일부 카메라는 RTP 절대시간을 제공하지 않습니다.
+  # 절대시간을 강제하면 세그먼트 생성이 스킵되어 HLS가 비게 됩니다.
+  # 필요 시 환경에 맞춰 true로 바꾸세요.
+  useAbsoluteTimestamp: false
+  sourceOnDemand: yes
+  sourceOnDemandStartTimeout: 10s
+  sourceOnDemandCloseAfter: 10s
+  rtspTransport: tcp
+
+# Single path; set by env
+paths:
+  __STREAM_NAME__:
+    source: __RTSP_URL__

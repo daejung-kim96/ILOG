@@ -1,0 +1,28 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+
+# NLP / HF
+transformers>=4.41
+tokenizers>=0.19
+safetensors>=0.4.1        #모델 로딩 안전/속도
+accelerate>=0.33          #GPU 최적화/장치 자동 배치
+protobuf>=3.20            #transformers tokenizer 의존성
+
+# HTTP & 모델 스키마 (app.py에서 직접 사용)
+requests>=2.32
+pydantic>=2,<3
+
+# PyTorch
+torch>=2.3                 # CUDA 환경에 맞게 고정 설치 권장
+
+# 한국어 문장 분리
+kss>=6.0
+
+# 수치/유틸
+numpy>=1.26
+
+# LLM 연동
+openai>=1.40      
+
+# 환경변수 로딩
+python-dotenv>=1.0         # .env 파일에서 키/설정 읽기
